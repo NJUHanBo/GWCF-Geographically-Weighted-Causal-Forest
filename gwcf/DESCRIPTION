@@ -1,0 +1,24 @@
+Package: gwcf
+Title: Geographically Weighted Causal Forest
+Version: 0.1.0
+Authors@R: person("Bo", "Han", email = "bh613@cam.ac.uk", role = c("aut", "cre"))
+Description: Implements a geographically weighted causal forest framework for estimating
+    spatially varying heterogeneous treatment effects. The package combines causal forests
+    (Athey et al., 2019) with kernel-weighted spatial averaging to address validation leakage
+    and variance underestimation in spatial data.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.3.2
+Imports:
+    grf (>= 2.3.0),
+    sf,
+    future.apply,
+    ggplot2,
+    stats,
+    methods
+Suggests: 
+    testthat,
+    knitr,
+    rmarkdown,
+    terra

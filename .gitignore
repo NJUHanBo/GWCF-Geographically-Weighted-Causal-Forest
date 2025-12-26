@@ -1,0 +1,46 @@
+# R package build artifacts
+*.tar.gz
+*.Rcheck/
+gwcf.Rcheck/
+
+# R session files
+.Rhistory
+.Rdata
+.RData
+.Ruserdata
+
+# R environment
+.Rproj.user/
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+
+# Local config
+.Renviron
+.Rprofile
+
+# Build outputs
+inst/doc/
+
+# Test artifacts
+tests/testthat/_snaps/
+
+# Cursor IDE
+.cursorrules
+
+# Draft documents
+*_outline.md
+Rplots.pdf
+

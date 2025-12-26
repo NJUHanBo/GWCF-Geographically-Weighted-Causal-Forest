@@ -1,0 +1,27 @@
+export(gw_causal_forest)
+export(select_bandwidth)
+export(spatial_bootstrap)
+export(spatial_bootstrap_with_data)
+export(diagnostics)
+export(create_spatial_blocks)
+export(prep_from_sf)
+export(prep_from_raster)
+
+S3method(predict, gw_causal_forest)
+S3method(plot, gw_causal_forest)
+S3method(summary, gw_causal_forest)
+S3method(print, gw_causal_forest)
+S3method(print, gwcf_diagnostics)
+S3method(print, gwcf_data)
+
+importFrom(stats, dist, kmeans, quantile, predict, sd, qnorm, complete.cases)
+importFrom(methods, is)
+importFrom(utils, globalVariables)
+importFrom(grf, causal_forest, regression_forest, average_treatment_effect)
+importFrom(future.apply, future_lapply)
+importFrom(sf, st_distance, st_as_sf, st_coordinates, st_centroid, 
+           st_geometry_type, st_transform, st_crs, st_drop_geometry)
+importFrom(ggplot2, ggplot, aes, geom_point, geom_line, geom_sf, geom_bar,
+           geom_histogram, geom_density, geom_vline, after_stat,
+           scale_color_viridis_c, scale_fill_manual, scale_x_log10, 
+           theme_minimal, theme, labs, element_text)
