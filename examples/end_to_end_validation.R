@@ -1,20 +1,20 @@
 # =============================================================================
-# GWCF 端到端验证测试
+# GWCF End-to-End Validation Test
 # 
-# 目的：在进入真实案例分析前，验证整个工作流
-# 方法：使用模拟数据（已知真实效应），检验估计是否合理
+# Purpose: Validate the complete workflow before real case analysis
+# Method: Use simulated data with known true effects to verify estimation
 # =============================================================================
 
 cat("
 ================================================================================
-                    GWCF 端到端验证测试
+                    GWCF End-to-End Validation Test
 ================================================================================
 ")
 
 # -----------------------------------------------------------------------------
-# 0. 环境准备
+# 0. Setup
 # -----------------------------------------------------------------------------
-cat("\n【0】环境准备\n")
+cat("\n[0] Environment Setup\n")
 
 library(devtools)
 load_all("gwcf", reset = TRUE)
@@ -27,48 +27,48 @@ library(future)
 plan(multisession, workers = 2)
 set.seed(42)
 
-cat("  ✓ 包加载完成\n")
+cat("  OK: Packages loaded\n")
 
 # -----------------------------------------------------------------------------
-# 1. 生成模拟数据（已知真实效应）
+# 1. Generate Simulated Data (with known true effects)
 # -----------------------------------------------------------------------------
-cat("\n【1】生成模拟数据\n")
+cat("\n[1] Generate Simulated Data\n")
 
-n <- 500  # 样本量
+n <- 500  # sample size
 coords <- cbind(
   X = runif(n, 0, 100),
   Y = runif(n, 0, 100)
 )
 
-# 协变量
+# Covariates
 X1 <- rnorm(n, 50, 10)
 X2 <- runif(n, 0, 1)
 X3 <- rnorm(n, 0, 1)
 X <- cbind(X1 = X1, X2 = X2, X3 = X3)
 
-# 二元处理：倾向性得分依赖于X1
+# Binary treatment: propensity depends on X1
 propensity <- plogis(-2 + 0.04 * X1)
 W <- rbinom(n, 1, propensity)
 
-# 真实处理效应：空间异质性
-# 效应在左下角大，右上角小
+# True treatment effect: spatial heterogeneity
+# Effect is larger in bottom-left, smaller in top-right
 tau_true <- 2 + 3 * (1 - coords[,1]/100) * (1 - coords[,2]/100) + 0.5 * X2
 
-# 潜在结果
+# Potential outcomes
 Y0 <- 10 + 0.1 * X1 + 2 * X2 + rnorm(n, 0, 1)
 Y1 <- Y0 + tau_true
 Y <- ifelse(W == 1, Y1, Y0)
 
-cat(sprintf("  样本量: %d\n", n))
-cat(sprintf("  处理组: %d (%.1f%%)\n", sum(W), 100*mean(W)))
-cat(sprintf("  真实效应范围: [%.2f, %.2f]\n", min(tau_true), max(tau_true)))
+cat(sprintf("  Sample size: %d\n", n))
+cat(sprintf("  Treated: %d (%.1f%%)\n", sum(W), 100*mean(W)))
+cat(sprintf("  True effect range: [%.2f, %.2f]\n", min(tau_true), max(tau_true)))
 
 # -----------------------------------------------------------------------------
-# 2. 测试 prep_from_sf
+# 2. Test prep_from_sf
 # -----------------------------------------------------------------------------
-cat("\n【2】测试 prep_from_sf\n")
+cat("\n[2] Test prep_from_sf\n")
 
-# 创建 sf 对象
+# Create sf object
 sim_sf <- st_as_sf(
   data.frame(
     outcome = Y,
@@ -88,15 +88,15 @@ data_sf <- prep_from_sf(
   x_cols = c("x1", "x2", "x3")
 )
 
-cat("  ✓ prep_from_sf 成功\n")
+cat("  OK: prep_from_sf succeeded\n")
 print(data_sf)
 
 # -----------------------------------------------------------------------------
-# 3. 测试 prep_from_raster（小栅格）
+# 3. Test prep_from_raster (small raster)
 # -----------------------------------------------------------------------------
-cat("\n【3】测试 prep_from_raster\n")
+cat("\n[3] Test prep_from_raster\n")
 
-# 创建小栅格
+# Create small raster
 r <- rast(nrows = 50, ncols = 50, xmin = 0, xmax = 100, ymin = 0, ymax = 100)
 y_r <- r; values(y_r) <- rnorm(ncell(r), 10, 2)
 w_r <- r; values(w_r) <- runif(ncell(r))
@@ -113,13 +113,13 @@ data_raster <- prep_from_raster(
   seed = 123
 )
 
-cat("  ✓ prep_from_raster 成功\n")
+cat("  OK: prep_from_raster succeeded\n")
 print(data_raster)
 
 # -----------------------------------------------------------------------------
-# 4. 模型拟合（使用sf数据）
+# 4. Model Fitting (using sf data)
 # -----------------------------------------------------------------------------
-cat("\n【4】模型拟合\n")
+cat("\n[4] Model Fitting\n")
 
 t_fit <- system.time({
   fit <- gw_causal_forest(
@@ -128,7 +128,7 @@ t_fit <- system.time({
     X = data_sf$X,
     coords = data_sf$coords,
     treatment_type = "binary",
-    bandwidth = NULL,  # 自动选择
+    bandwidth = NULL,  # auto-select
     n_anchors = 15,
     kernel = "bisquare",
     n_folds = 3,
@@ -137,107 +137,107 @@ t_fit <- system.time({
   )
 })
 
-cat(sprintf("  ✓ 模型拟合成功，耗时 %.1f 秒\n", t_fit["elapsed"]))
+cat(sprintf("  OK: Model fitted in %.1f seconds\n", t_fit["elapsed"]))
 print(fit)
 
 # -----------------------------------------------------------------------------
-# 5. 预测
+# 5. Prediction
 # -----------------------------------------------------------------------------
-cat("\n【5】预测\n")
+cat("\n[5] Prediction\n")
 
 preds <- predict(fit, newX = data_sf$X, newcoords = data_sf$coords)
 
-cat(sprintf("  ✓ 预测成功\n"))
-cat(sprintf("  估计效应范围: [%.3f, %.3f]\n", min(preds$tau_hat), max(preds$tau_hat)))
-cat(sprintf("  平均SE: %.3f\n", mean(preds$se)))
-cat(sprintf("  ESS范围: [%.1f, %.1f]\n", min(preds$ess), max(preds$ess)))
+cat(sprintf("  OK: Prediction succeeded\n"))
+cat(sprintf("  Estimated effect range: [%.3f, %.3f]\n", min(preds$tau_hat), max(preds$tau_hat)))
+cat(sprintf("  Mean SE: %.3f\n", mean(preds$se)))
+cat(sprintf("  ESS range: [%.1f, %.1f]\n", min(preds$ess), max(preds$ess)))
 
 # -----------------------------------------------------------------------------
-# 6. 验证：估计 vs 真实
+# 6. Validation: Estimated vs True
 # -----------------------------------------------------------------------------
-cat("\n【6】验证：估计 vs 真实效应\n")
+cat("\n[6] Validation: Estimated vs True Effects\n")
 
 correlation <- cor(preds$tau_hat, tau_true)
 rmse <- sqrt(mean((preds$tau_hat - tau_true)^2))
 bias <- mean(preds$tau_hat - tau_true)
 
-cat(sprintf("  相关系数: %.3f\n", correlation))
+cat(sprintf("  Correlation: %.3f\n", correlation))
 cat(sprintf("  RMSE: %.3f\n", rmse))
-cat(sprintf("  偏差: %.3f\n", bias))
+cat(sprintf("  Bias: %.3f\n", bias))
 
-# 判断标准
+# Threshold check
 if (correlation > 0.5) {
-  cat("  ✓ 相关性检验通过 (r > 0.5)\n")
+  cat("  OK: Correlation test passed (r > 0.5)\n")
 } else {
-  cat("  ⚠ 相关性较低，可能需要调整参数\n")
+  cat("  WARNING: Low correlation, consider adjusting parameters\n")
 }
 
-# 可视化
+# Visualization
 p_validation <- ggplot(data.frame(true = tau_true, estimated = preds$tau_hat),
                        aes(x = true, y = estimated)) +
   geom_point(alpha = 0.5) +
   geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
   theme_minimal() +
-  labs(title = sprintf("真实 vs 估计效应 (r = %.3f)", correlation),
-       x = "真实效应", y = "估计效应")
+  labs(title = sprintf("True vs Estimated Effects (r = %.3f)", correlation),
+       x = "True Effect", y = "Estimated Effect")
 
 ggsave("examples/plots/validation_true_vs_estimated.png", p_validation, 
        width = 6, height = 5, dpi = 150)
-cat("  ✓ 验证图已保存\n")
+cat("  OK: Validation plot saved\n")
 
 # -----------------------------------------------------------------------------
-# 7. 诊断
+# 7. Diagnostics
 # -----------------------------------------------------------------------------
-cat("\n【7】诊断\n")
+cat("\n[7] Diagnostics\n")
 
 diag <- diagnostics(fit)
 print(diag)
 
 # -----------------------------------------------------------------------------
-# 8. 可视化
+# 8. Visualization
 # -----------------------------------------------------------------------------
-cat("\n【8】可视化\n")
+cat("\n[8] Visualization\n")
 
-# 效应地图
+# Effect map
 p_effect <- plot(fit, type = "effect_map", 
                  newX = data_sf$X, newcoords = data_sf$coords)
 ggsave("examples/plots/validation_effect_map.png", p_effect, 
        width = 7, height = 6, dpi = 150)
-cat("  ✓ 效应地图已保存\n")
+cat("  OK: Effect map saved\n")
 
-# ESS地图
+# ESS map
 p_ess <- plot(fit, type = "ess_map")
 ggsave("examples/plots/validation_ess_map.png", p_ess, 
        width = 7, height = 6, dpi = 150)
-cat("  ✓ ESS地图已保存\n")
+cat("  OK: ESS map saved\n")
 
-# CV曲线
+# CV curve
 if (!is.null(fit$cv_results)) {
   p_cv <- plot(fit, type = "cv_curve")
   ggsave("examples/plots/validation_cv_curve.png", p_cv, 
          width = 6, height = 4, dpi = 150)
-  cat("  ✓ CV曲线已保存\n")
+  cat("  OK: CV curve saved\n")
 }
 
-# Overlap图
+# Overlap plot
 p_overlap <- plot(fit, type = "overlap")
 ggsave("examples/plots/validation_overlap.png", p_overlap, 
        width = 6, height = 4, dpi = 150)
-cat("  ✓ Overlap图已保存\n")
+cat("  OK: Overlap plot saved\n")
 
 # -----------------------------------------------------------------------------
 # 9. Summary
 # -----------------------------------------------------------------------------
-cat("\n【9】Summary\n")
+cat("\n[9] Summary\n")
 
 summ <- summary(fit)
 
 # -----------------------------------------------------------------------------
-# 10. 边界情况测试
+# 10. Edge Case Test
 # -----------------------------------------------------------------------------
-cat("\n【10】边界情况测试\n")
+cat("\n[10] Edge Case Test\n")
 
-# 测试外部点预测
+# Test prediction for points outside study area
 far_coords <- matrix(c(200, 200, 300, 300), ncol = 2, byrow = TRUE)
 far_X <- matrix(rnorm(6), ncol = 3)
 colnames(far_X) <- c("x1", "x2", "x3")
@@ -245,69 +245,68 @@ colnames(far_X) <- c("x1", "x2", "x3")
 pred_far <- tryCatch({
   suppressWarnings(predict(fit, far_X, far_coords))
 }, error = function(e) {
-  cat("  ✗ 外部点预测失败:", e$message, "\n")
+  cat("  FAIL: Prediction for external points failed:", e$message, "\n")
   NULL
 })
 
 if (!is.null(pred_far)) {
-  cat("  ✓ 外部点预测成功（应有警告）\n")
+  cat("  OK: External point prediction succeeded (warning expected)\n")
 }
 
 # -----------------------------------------------------------------------------
-# 11. Bootstrap（可选，耗时）
+# 11. Bootstrap (optional, time-consuming)
 # -----------------------------------------------------------------------------
-cat("\n【11】Bootstrap推断（快速测试，5次迭代）\n")
+cat("\n[11] Bootstrap Inference (quick test, 5 iterations)\n")
 
 t_boot <- system.time({
   boot_ci <- spatial_bootstrap(
     object = fit,
     newX = data_sf$X[1:10, ],
     newcoords = data_sf$coords[1:10, ],
-    n_bootstrap = 5,  # 快速测试
+    n_bootstrap = 5,  # quick test
     n_blocks = 5,
     conf_level = 0.95,
     seed = 123
   )
 })
 
-cat(sprintf("  ✓ Bootstrap完成，耗时 %.1f 秒\n", t_boot["elapsed"]))
-cat(sprintf("  前3个点的CI宽度: %.3f, %.3f, %.3f\n", 
+cat(sprintf("  OK: Bootstrap completed in %.1f seconds\n", t_boot["elapsed"]))
+cat(sprintf("  CI width for first 3 points: %.3f, %.3f, %.3f\n", 
             boot_ci$ci_upper[1] - boot_ci$ci_lower[1],
             boot_ci$ci_upper[2] - boot_ci$ci_lower[2],
             boot_ci$ci_upper[3] - boot_ci$ci_lower[3]))
 
 # -----------------------------------------------------------------------------
-# 清理
+# Cleanup
 # -----------------------------------------------------------------------------
 plan(sequential)
 
 # -----------------------------------------------------------------------------
-# 总结
+# Final Summary
 # -----------------------------------------------------------------------------
 cat("\n")
 cat("================================================================================\n")
-cat("                         端到端验证完成\n")
+cat("                         End-to-End Validation Complete\n")
 cat("================================================================================\n")
 cat("\n")
-cat("结果摘要:\n")
-cat(sprintf("  - 样本量: %d\n", n))
-cat(sprintf("  - 处理组比例: %.1f%%\n", 100*mean(W)))
-cat(sprintf("  - 估计与真实相关: r = %.3f\n", correlation))
+cat("Results Summary:\n")
+cat(sprintf("  - Sample size: %d\n", n))
+cat(sprintf("  - Treatment proportion: %.1f%%\n", 100*mean(W)))
+cat(sprintf("  - Estimated vs true correlation: r = %.3f\n", correlation))
 cat(sprintf("  - RMSE: %.3f\n", rmse))
-cat(sprintf("  - 选定带宽: %.2f\n", fit$bandwidth))
-cat(sprintf("  - Anchor数量: %d\n", length(fit$anchor_forests)))
+cat(sprintf("  - Selected bandwidth: %.2f\n", fit$bandwidth))
+cat(sprintf("  - Number of anchors: %d\n", length(fit$anchor_forests)))
 cat("\n")
 
 if (correlation > 0.5 && rmse < 2) {
-  cat("✓ 验证通过！可以进行真实案例分析。\n")
+  cat("PASSED: Validation successful. Ready for real case analysis.\n")
 } else {
-  cat("⚠ 验证结果需要关注。建议检查参数设置。\n")
+  cat("WARNING: Results need attention. Check parameter settings.\n")
 }
 
-cat("\n生成的图表:\n")
+cat("\nGenerated plots:\n")
 cat("  - examples/plots/validation_true_vs_estimated.png\n")
 cat("  - examples/plots/validation_effect_map.png\n")
 cat("  - examples/plots/validation_ess_map.png\n")
 cat("  - examples/plots/validation_cv_curve.png\n")
 cat("  - examples/plots/validation_overlap.png\n")
-
