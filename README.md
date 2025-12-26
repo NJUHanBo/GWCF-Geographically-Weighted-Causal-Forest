@@ -15,7 +15,7 @@ The package implements spatially-aware cross-validation for bandwidth selection 
 
 ```r
 # Install from GitHub
-devtools::install_github("your-username/GWCF", subdir = "gwcf")
+devtools::install_github("NJUHanBo/GWCF-Geographically-Weighted-Causal-Forest", subdir = "gwcf")
 ```
 
 ### Dependencies
@@ -186,7 +186,7 @@ If you use this package, please cite:
   author = {Han, Bo},
   title = {GWCF: Geographically Weighted Causal Forest},
   year = {2025},
-  url = {https://github.com/your-username/GWCF}
+  url = {https://github.com/NJUHanBo/GWCF-Geographically-Weighted-Causal-Forest}
 }
 ```
 
