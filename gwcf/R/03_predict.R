@@ -37,21 +37,17 @@ predict.gw_causal_forest <- function(object, newX, newcoords,
   n_outside <- length(zero_sum_idx)
   
   if (n_outside > 0) {
-    # Check how far outside these points are
     min_dists <- apply(dists[zero_sum_idx, , drop = FALSE], 1, min)
-    max_reasonable_dist <- object$bandwidth * 3  # 3x bandwidth is very far
-    
-    # Points extremely far from any anchor (likely outside study area)
+    max_reasonable_dist <- object$bandwidth * 3
     extreme_idx <- zero_sum_idx[min_dists > max_reasonable_dist]
     
     if (length(extreme_idx) > 0) {
       warning(sprintf(
-        "%d prediction point(s) are far outside the study area (>3x bandwidth from nearest anchor). ",
+        "%d prediction point(s) are far outside the study area (>3x bandwidth). ",
         length(extreme_idx)),
-        "Predictions for these points are extrapolations and may be unreliable.",
+        "Predictions for these points may be unreliable.",
         call. = FALSE)
     } else if (n_outside > nrow(newcoords) * 0.1) {
-      # More than 10% of points are outside kernel support
       warning(sprintf(
         "%d prediction point(s) (%.1f%%) fall outside kernel support. ",
         n_outside, 100 * n_outside / nrow(newcoords)),
@@ -59,7 +55,6 @@ predict.gw_causal_forest <- function(object, newX, newcoords,
         call. = FALSE)
     }
     
-    # Fallback: assign to nearest anchor
     for (i in zero_sum_idx) {
       nearest <- which.min(dists[i, ])
       weights_interp[i, nearest] <- 1
@@ -69,38 +64,30 @@ predict.gw_causal_forest <- function(object, newX, newcoords,
   weights_interp <- weights_interp / row_sums
   
   # 2. Get predictions from each anchor forest
+  # Use lapply (not future_lapply) for predict to avoid serializing the entire model.
+  # Prediction is fast per-forest; the overhead of serialization dominates.
   n_anchors <- length(object$anchor_forests)
   n_targets <- nrow(newX)
-  pred_mat <- matrix(NA, nrow = n_targets, ncol = n_anchors)
-  var_mat <- matrix(NA, nrow = n_targets, ncol = n_anchors)
+  pred_mat <- matrix(NA_real_, nrow = n_targets, ncol = n_anchors)
+  var_mat <- matrix(NA_real_, nrow = n_targets, ncol = n_anchors)
   
-  preds_list <- future.apply::future_lapply(1:n_anchors, function(j) {
+  for (j in seq_len(n_anchors)) {
     forest <- object$anchor_forests[[j]]
     raw_pred <- predict(forest, newX, estimate.variance = estimate_variance)
     
-    preds <- as.vector(raw_pred$predictions)
-    vars <- if (estimate_variance && !is.null(raw_pred$variance.estimates)) {
-      as.vector(raw_pred$variance.estimates)
-    } else {
-      rep(NA, length(preds))
+    pred_mat[, j] <- as.vector(raw_pred$predictions)
+    if (estimate_variance && !is.null(raw_pred$variance.estimates)) {
+      var_mat[, j] <- as.vector(raw_pred$variance.estimates)
     }
-    
-    list(predictions = preds, variances = vars)
-  }, future.seed = TRUE)
-  
-  for (j in 1:n_anchors) {
-    pred_mat[, j] <- preds_list[[j]]$predictions
-    var_mat[, j] <- preds_list[[j]]$variances
   }
   
-  # 3. Compute weighted average of predictions
+  # 3. Weighted average of predictions
   tau_hat <- rowSums(weights_interp * pred_mat)
   ess <- apply(weights_interp, 1, compute_ess)
   
-  # 4. Compute variance of weighted average
-  # Var(sum(w_j * tau_j)) = sum(w_j^2 * Var(tau_j)) assuming independence
+  # 4. Variance of weighted average: Var(sum(w_j * tau_j)) = sum(w_j^2 * Var(tau_j))
   if (estimate_variance && !all(is.na(var_mat))) {
-    var_tau <- rowSums((weights_interp^2) * var_mat)
+    var_tau <- rowSums((weights_interp^2) * var_mat, na.rm = TRUE)
     se <- sqrt(var_tau)
     z <- qnorm(1 - alpha / 2)
     ci_lower <- tau_hat - z * se

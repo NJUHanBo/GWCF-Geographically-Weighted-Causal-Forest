@@ -43,12 +43,18 @@ gw_causal_forest <- function(Y, W, X, coords,
   
   if (!is.null(seed)) set.seed(seed)
   
-  # 1. Bandwidth Selection
+  # 1. Anchor count heuristic (computed early so CV can use it)
+  if (is.null(n_anchors)) {
+    n_anchors <- max(10, floor(sqrt(nrow(X))))
+  }
+  
+  # 2. Bandwidth Selection
   if (is.null(bandwidth)) {
     message("Selecting bandwidth via spatial cross-validation...")
     bw_res <- select_bandwidth(Y, W, X, coords, 
                                treatment_type = treatment_type,
                                n_folds = n_folds, kernel = kernel,
+                               n_anchors = n_anchors,
                                num.trees = num.trees, 
                                honesty = honesty,
                                min.node.size = min.node.size,
@@ -60,13 +66,10 @@ gw_causal_forest <- function(Y, W, X, coords,
     cv_results <- NULL
   }
   
-  # 2. Anchor Selection
-  if (is.null(n_anchors)) {
-    n_anchors <- max(10, floor(sqrt(nrow(X))))
-  }
+  # 3. Anchor Selection
   anchors <- select_anchors(coords, n_anchors, seed = seed)
   
-  # 3. Compute Weights
+  # 4. Compute Weights
   message(sprintf("Computing weights for %d anchors...", nrow(anchors)))
   dists_to_anchors <- compute_distance(coords, anchors)
   weights_mat <- get_weights(dists_to_anchors, bandwidth, kernel)
@@ -76,37 +79,39 @@ gw_causal_forest <- function(Y, W, X, coords,
     warning("Some anchors have very low ESS (< 20). Consider increasing bandwidth.")
   }
   
-  # 4. Fit Local Forests (Unified Approach)
-  # grf::causal_forest handles both binary and continuous W.
-  # For continuous W, it implements the R-learner (orthogonalized residuals).
-  # This replaces the manual orthogonalization step, reducing code complexity and errors.
-  
+  # 5. Fit Local Forests
+  # Use explicit argument passing to avoid closure capturing the entire environment.
+  # This prevents serialization explosion when using future_lapply.
   message("Fitting local forests...")
-  weights_list <- as.list(as.data.frame(weights_mat))
   
-  fit_anchor_worker <- function(w_i, X_local, Y_local, W_local, n_trees, h_val, mns) {
-    subset_idx <- which(w_i > 0)
-    if (length(subset_idx) < mns * 2) return(NULL) 
-    
-    X_sub <- X_local[subset_idx, , drop = FALSE]
-    Y_sub <- Y_local[subset_idx]
-    W_sub <- W_local[subset_idx]
-    w_sub <- w_i[subset_idx]
-    
-    # causal_forest works for both binary and continuous W
-    # ci.group.size >= 2 is required for variance estimation
-    fit <- grf::causal_forest(X_sub, Y_sub, W_sub,
-                              sample.weights = w_sub,
-                              num.trees = n_trees,
-                              honesty = h_val,
-                              min.node.size = mns,
-                              ci.group.size = 2)
-    return(fit)
-  }
-  
-  forest_list <- future.apply::future_lapply(weights_list, function(w) {
-    fit_anchor_worker(w, X, Y, W, num.trees, honesty, min.node.size)
-  }, future.seed = TRUE)
+  forest_list <- future.apply::future_lapply(
+    seq_len(ncol(weights_mat)),
+    function(j, w_mat, X_data, Y_data, W_data, n_trees, h_val, mns) {
+      w_i <- w_mat[, j]
+      subset_idx <- which(w_i > 0)
+      if (length(subset_idx) < mns * 2) return(NULL)
+      
+      grf::causal_forest(
+        X_data[subset_idx, , drop = FALSE],
+        Y_data[subset_idx],
+        W_data[subset_idx],
+        sample.weights = w_i[subset_idx],
+        num.trees = n_trees,
+        honesty = h_val,
+        min.node.size = mns,
+        ci.group.size = 2
+      )
+    },
+    w_mat = weights_mat,
+    X_data = X,
+    Y_data = Y,
+    W_data = W,
+    n_trees = num.trees,
+    h_val = honesty,
+    mns = min.node.size,
+    future.seed = TRUE,
+    future.globals = FALSE
+  )
   
   valid_anchors_idx <- which(!sapply(forest_list, is.null))
   if (length(valid_anchors_idx) == 0) {
@@ -133,7 +138,6 @@ gw_causal_forest <- function(Y, W, X, coords,
     call = match.call()
   )
   
-  # Store training data if requested (needed for spatial_bootstrap)
   if (store_data) {
     res$Y_train <- Y
     res$W_train <- W
